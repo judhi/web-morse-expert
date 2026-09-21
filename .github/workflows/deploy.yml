@@ -1,0 +1,54 @@
+name: Deploy WASM PWA to GitHub Pages
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 1. Set up Rust toolchain with the WASM target
+      - name: Install Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      # 2. Install wasm-pack
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+      # 3. Build WebAssembly (Outputs JS wrapper + WASM binary to ./pkg)
+      - name: Build WebAssembly
+        run: wasm-pack build --target web --release --out-dir ./pkg
+
+      # 4. Configure Pages environment
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      # 5. Upload site files (index.html, sw.js, manifest.json, pkg/ directory)
+      - name: Upload Pages Artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: '.'
+
+      # 6. Deploy to GitHub Pages
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
