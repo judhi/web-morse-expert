@@ -1,0 +1,1400 @@
+
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Morse Expert Web - Tactical CW Decoder &amp; Spectrogram</title>
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            radio: {
+              950: '#090d16',
+              900: '#0f172a',
+              800: '#1e293b',
+              700: '#334155',
+              accent: '#10b981',
+              amber: '#f59e0b',
+              cyan: '#06b6d4',
+              fire: '#ef4444'
+            }
+          },
+          fontFamily: {
+            mono: ['JetBrains Mono', 'Fira Code', 'Courier New', 'monospace'],
+            sans: ['Inter', 'system-ui', 'sans-serif']
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- Google Fonts & FontAwesome Icons -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+
+  <style>
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #0f172a;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #334155;
+      border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #10b981;
+    }
+
+    .glow-amber {
+      text-shadow: 0 0 8px rgba(245, 158, 11, 0.6);
+    }
+    .glow-green {
+      text-shadow: 0 0 8px rgba(16, 185, 129, 0.6);
+    }
+    .glow-cyan {
+      text-shadow: 0 0 8px rgba(6, 182, 212, 0.6);
+    }
+
+    .smeter-bar {
+      transition: width 0.05s linear;
+    }
+
+    input[type=range] {
+      accent-color: #10b981;
+    }
+  </style>
+</head>
+
+<body class="bg-radio-950 text-slate-200 font-sans min-h-screen flex flex-col selection:bg-emerald-500 selection:text-black">
+
+  <header class="bg-radio-900 border-b border-radio-800 px-4 py-3 sticky top-0 z-50 shadow-lg">
+    <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4">
+      
+      <!-- Brand & Title -->
+      <div class="flex items-center space-x-3">
+        <div class="p-2 bg-emerald-500/10 border border-emerald-500/30 rounded-lg text-emerald-400">
+          <i class="fa-solid font-mono text-xl fa-tower-cell"></i>
+        </div>
+        <div>
+          <h1 class="text-lg font-bold text-slate-100 tracking-wide flex items-center gap-2">
+            MORSE EXPERT WEB
+            <span class="text-xs px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-mono border border-emerald-500/30">v3.0 DSP</span>
+          </h1>
+          <p class="text-xs text-slate-400">Adaptive CW Decoder &amp; High-Contrast Horizontal Spectrogram</p>
+        </div>
+      </div>
+
+      <!-- Action Controls & Status Indicator -->
+      <div class="flex items-center flex-wrap gap-2 text-sm">
+        <select id="audioSourceSelect" class="bg-radio-800 border border-radio-700 text-slate-200 text-xs rounded-lg px-3 py-2 focus:ring-1 focus:ring-emerald-500 outline-none">
+          <option value="mic">🎙️ Live Microphone / Line-In</option>
+          <option value="synth">📻 Built-in Synthesizer Test Generator</option>
+        </select>
+
+        <button id="btnToggleAudio" class="bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-semibold px-4 py-2 rounded-lg transition-all flex items-center gap-2 shadow-md hover:shadow-emerald-500/20 active:scale-95">
+          <i id="btnAudioIcon" class="fa-solid fa-power-off"></i>
+          <span id="btnAudioText">START DECODER</span>
+        </button>
+
+        <button id="btnWakeLock" title="Keep screen awake during operation" class="bg-radio-800 hover:bg-radio-700 text-slate-300 border border-radio-700 px-3 py-2 rounded-lg transition flex items-center gap-2">
+          <i class="fa-solid fa-sun"></i>
+          <span class="hidden sm:inline text-xs">Wake Lock</span>
+        </button>
+      </div>
+
+    </div>
+  </header>
+
+  <main class="max-w-7xl w-full mx-auto p-3 sm:p-4 md:p-6 flex-1 flex flex-col gap-4">
+
+    <!-- TELEMETRY SIGNAL HUD -->
+    <section class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+      
+      <!-- Target Frequency -->
+      <div class="bg-radio-900 border border-radio-800 rounded-xl p-3 flex flex-col justify-between relative overflow-hidden group">
+        <div class="text-xs text-slate-400 font-medium flex justify-between items-center">
+          <span>TARGET PITCH</span>
+          <button id="btnToggleAutoLock" class="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30 hover:bg-amber-500/30 transition">AUTO</button>
+        </div>
+        <div class="my-1">
+          <span id="hudPitch" class="text-2xl font-bold font-mono text-amber-400 glow-amber">700</span>
+          <span class="text-xs text-slate-400 ml-1">Hz</span>
+        </div>
+        <div class="text-[10px] text-slate-500 flex justify-between">
+          <span>BW: <span id="hudBwText">60</span> Hz</span>
+          <span id="hudLockState" class="text-amber-400 font-mono">TRACKING</span>
+        </div>
+      </div>
+
+      <!-- Estimated WPM -->
+      <div class="bg-radio-900 border border-radio-800 rounded-xl p-3 flex flex-col justify-between">
+        <div class="text-xs text-slate-400 font-medium flex justify-between items-center">
+          <span>SPEED (WPM)</span>
+          <span id="valWpmLockText" class="text-[10px] text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded">ADAPTIVE</span>
+        </div>
+        <div class="my-1">
+          <span id="hudWpm" class="text-2xl font-bold font-mono text-emerald-400 glow-green">20.0</span>
+          <span class="text-xs text-slate-400 ml-1">WPM</span>
+        </div>
+        <div class="text-[10px] text-slate-500">
+          Dit Length: <span id="hudDitMs" class="text-slate-300 font-mono">60</span> ms
+        </div>
+      </div>
+
+      <!-- Signal-to-Noise Ratio (SNR) -->
+      <div class="bg-radio-900 border border-radio-800 rounded-xl p-3 flex flex-col justify-between">
+        <div class="text-xs text-slate-400 font-medium">SNR ESTIMATE</div>
+        <div class="my-1">
+          <span id="hudSnr" class="text-2xl font-bold font-mono text-cyan-400 glow-cyan">+18</span>
+          <span class="text-xs text-slate-400 ml-1">dB</span>
+        </div>
+        <div class="text-[10px] text-slate-500">
+          Noise Floor: <span id="hudNoiseFloor" class="text-slate-300 font-mono">-48</span> dB
+        </div>
+      </div>
+
+      <!-- S-Meter Signal Strength -->
+      <div class="bg-radio-900 border border-radio-800 rounded-xl p-3 flex flex-col justify-between">
+        <div class="text-xs text-slate-400 font-medium flex justify-between">
+          <span>S-METER</span>
+          <span id="hudSmeterText" class="font-mono text-emerald-400">S9</span>
+        </div>
+        <div class="w-full bg-radio-800 h-3 rounded-full overflow-hidden border border-radio-700 my-1 p-0.5">
+          <div id="smeterBar" class="smeter-bar h-full bg-gradient-to-r from-emerald-500 via-amber-400 to-rose-500 rounded-full w-0"></div>
+        </div>
+        <div class="text-[10px] text-slate-500 flex justify-between font-mono">
+          <span>S1</span><span>S5</span><span>S9</span><span>+20</span>
+        </div>
+      </div>
+
+      <!-- Keying State & Envelope -->
+      <div class="bg-radio-900 border border-radio-800 rounded-xl p-3 flex flex-col justify-between">
+        <div class="text-xs text-slate-400 font-medium flex justify-between">
+          <span>KEY STATE</span>
+          <span id="hudKeyStateText" class="font-mono text-slate-500">IDLE</span>
+        </div>
+        <div class="flex items-center gap-2 my-1">
+          <div id="keyStateLed" class="w-4 h-4 rounded-full bg-slate-700 border border-slate-600 transition-all duration-75"></div>
+          <span id="hudElementSymbol" class="text-xl font-bold font-mono text-emerald-400 min-h-[28px]">-</span>
+        </div>
+        <div class="text-[10px] text-slate-500">
+          Threshold: <span id="hudThresholdVal" class="text-slate-300 font-mono">15%</span>
+        </div>
+      </div>
+
+      <!-- Decoded Stats -->
+      <div class="bg-radio-900 border border-radio-800 rounded-xl p-3 flex flex-col justify-between">
+        <div class="text-xs text-slate-400 font-medium">STATS</div>
+        <div class="my-1">
+          <span id="hudCharCount" class="text-2xl font-bold font-mono text-slate-200">0</span>
+          <span class="text-xs text-slate-400 ml-1">chars</span>
+        </div>
+        <div class="text-[10px] text-slate-500 flex justify-between">
+          <span>Words: <span id="hudWordCount" class="text-slate-300 font-mono">0</span></span>
+          <span id="hudFidelity" class="text-emerald-400 font-mono">OK</span>
+        </div>
+      </div>
+
+    </section>
+
+    <section class="bg-radio-900 border border-radio-800 rounded-xl p-3 shadow-md flex flex-col gap-2">
+      
+      <div class="flex flex-wrap items-center justify-between gap-3 text-xs border-b border-radio-800 pb-2">
+        <div class="flex items-center gap-2">
+          <span class="font-semibold text-slate-300 flex items-center gap-1.5">
+            <i class="fa-solid fa-chart-simple text-emerald-400"></i> HORIZONTAL CW WATERFALL (RIGHT TO LEFT)
+          </span>
+          <span class="text-slate-500 hidden sm:inline">| Click/Tap waterfall vertically to set pitch target</span>
+        </div>
+
+        <div class="flex items-center gap-3">
+          <div class="flex items-center gap-1">
+            <label for="themeSelect" class="text-slate-400">Theme:</label>
+            <select id="themeSelect" class="bg-radio-800 border border-radio-700 text-slate-200 text-xs rounded px-2 py-1 outline-none">
+              <option value="amber">Amber Phosphor</option>
+              <option value="green">Matrix Green</option>
+              <option value="cyan">Cyberpunk Cyan</option>
+              <option value="fire">Solar Fire</option>
+              <option value="mono">Dark Mono</option>
+            </select>
+          </div>
+
+          <div class="flex items-center gap-1">
+            <label for="speedSelect" class="text-slate-400">Scroll Speed:</label>
+            <select id="speedSelect" class="bg-radio-800 border border-radio-700 text-slate-200 text-xs rounded px-2 py-1 outline-none">
+              <option value="1">1x (Slow)</option>
+              <option value="2" selected>2x (Normal)</option>
+              <option value="3">3x (Fast)</option>
+            </select>
+          </div>
+
+          <button id="btnResetTune" class="bg-radio-800 hover:bg-radio-700 text-slate-300 border border-radio-700 px-2 py-1 rounded transition flex items-center gap-1">
+            <i class="fa-solid fa-crosshairs text-amber-400"></i> Auto Center
+          </button>
+        </div>
+      </div>
+
+      <div class="relative w-full bg-black rounded-lg overflow-hidden border border-radio-800 cursor-crosshair">
+        <canvas id="canvasSpectrum" class="w-full h-20 block border-b border-radio-800/80"></canvas>
+        <canvas id="canvasWaterfall" class="w-full h-56 block"></canvas>
+
+        <div id="canvasHoverFreq" class="absolute top-2 right-2 bg-radio-950/90 border border-radio-700/80 text-amber-400 font-mono text-xs px-2 py-1 rounded pointer-events-none hidden shadow-md">
+          0 Hz
+        </div>
+      </div>
+    </section>
+
+    <section class="bg-radio-900 border border-radio-800 rounded-xl p-3 shadow-md flex flex-col gap-2">
+      
+      <div class="flex flex-wrap items-center justify-between gap-2 border-b border-radio-800 pb-2 text-xs">
+        <div class="flex items-center gap-2">
+          <span class="font-semibold text-slate-300 flex items-center gap-1.5">
+            <i class="fa-solid fa-terminal text-emerald-400"></i> DECODED STREAM
+          </span>
+          <span id="terminalStatus" class="text-slate-500 font-mono text-[11px]">○ PAUSED</span>
+        </div>
+
+        <div class="flex items-center gap-2">
+          <button id="btnFontDec" class="bg-radio-800 hover:bg-radio-700 text-slate-300 border border-radio-700 px-2 py-1 rounded">A-</button>
+          <button id="btnFontInc" class="bg-radio-800 hover:bg-radio-700 text-slate-300 border border-radio-700 px-2 py-1 rounded">A+</button>
+
+          <button id="btnAutoScroll" class="bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-2.5 py-1 rounded font-medium flex items-center gap-1">
+            <i class="fa-solid fa-arrow-down-short-wide"></i> Auto-Scroll
+          </button>
+
+          <button id="btnCopyText" class="bg-radio-800 hover:bg-radio-700 text-slate-200 border border-radio-700 px-2.5 py-1 rounded flex items-center gap-1 transition">
+            <i class="fa-solid fa-copy"></i> Copy
+          </button>
+
+          <button id="btnDownloadLog" class="bg-radio-800 hover:bg-radio-700 text-slate-200 border border-radio-700 px-2.5 py-1 rounded flex items-center gap-1 transition">
+            <i class="fa-solid fa-download"></i> Save
+          </button>
+
+          <button id="btnClearText" class="bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 px-2.5 py-1 rounded transition flex items-center gap-1">
+            <i class="fa-solid fa-trash-can"></i> Clear
+          </button>
+        </div>
+      </div>
+
+      <div id="terminalContainer" class="bg-black/90 border border-radio-800 rounded-lg p-4 min-h-[160px] max-h-[280px] overflow-y-auto font-mono text-emerald-400 text-base leading-relaxed break-words shadow-inner">
+        <span id="decodedTextOutput"></span><span id="terminalCursor" class="inline-block w-2.5 h-4 bg-emerald-400 ml-1 animate-pulse align-middle"></span>
+      </div>
+    </section>
+
+    <section class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      
+      <!-- PANEL 1: DSP & RECEIVER SETTINGS -->
+      <div class="bg-radio-900 border border-radio-800 rounded-xl p-4 flex flex-col gap-3">
+        <div class="flex items-center gap-2 border-b border-radio-800 pb-2">
+          <i class="fa-solid fa-sliders text-amber-400"></i>
+          <h2 class="text-sm font-semibold text-slate-200">DSP &amp; Noise Suppression Controls</h2>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+          <div class="flex flex-col gap-1">
+            <div class="flex justify-between text-slate-400">
+              <span>Input Gain Boost:</span>
+              <span id="valInputGain" class="font-mono text-slate-200">1.0x</span>
+            </div>
+            <input type="range" id="sliderInputGain" min="0.1" max="5.0" step="0.1" value="1.0" class="w-full">
+          </div>
+
+          <div class="flex flex-col gap-1">
+            <div class="flex justify-between text-slate-400">
+              <span>Bandpass Bandwidth:</span>
+              <span id="valBandwidth" class="font-mono text-slate-200">60 Hz</span>
+            </div>
+            <input type="range" id="sliderBandwidth" min="20" max="250" step="10" value="60" class="w-full">
+          </div>
+
+          <div class="flex flex-col gap-1">
+            <div class="flex justify-between text-slate-400">
+              <span>Noise Squelch Threshold:</span>
+              <span id="valSquelch" class="font-mono text-slate-200">15%</span>
+            </div>
+            <input type="range" id="sliderSquelch" min="5" max="60" step="1" value="15" class="w-full">
+          </div>
+
+          <div class="flex flex-col gap-1">
+            <div class="flex justify-between text-slate-400">
+              <span>WPM Speed Tracker:</span>
+              <span id="wpmLockStatusLabel" class="font-mono text-emerald-400">Auto (Adaptive)</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <button id="btnToggleWpmLock" class="w-full bg-radio-800 hover:bg-radio-700 border border-radio-700 text-slate-200 py-1.5 rounded text-xs transition">
+                Toggle Fixed / Adaptive Speed
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- PANEL 2: BUILT-IN CW SIGNAL SYNTHESIZER (TEST GENERATOR) -->
+      <div class="bg-radio-900 border border-radio-800 rounded-xl p-4 flex flex-col gap-3">
+        <div class="flex items-center justify-between border-b border-radio-800 pb-2">
+          <div class="flex items-center gap-2">
+            <i class="fa-solid fa-radio text-emerald-400"></i>
+            <h2 class="text-sm font-semibold text-slate-200">CW Signal Synthesizer (Test Generator)</h2>
+          </div>
+          <span class="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded">OFFLINE TEST</span>
+        </div>
+
+        <div class="flex flex-wrap gap-1.5 text-[11px]">
+          <span class="text-slate-400 my-auto">Presets:</span>
+          <button class="btnPreset bg-radio-800 hover:bg-radio-700 border border-radio-700 px-2 py-0.5 rounded text-slate-300" data-text="CQ CQ CQ DE W1AW K">CQ Test</button>
+          <button class="btnPreset bg-radio-800 hover:bg-radio-700 border border-radio-700 px-2 py-0.5 rounded text-slate-300" data-text="PARIS PARIS PARIS">PARIS Standard</button>
+          <button class="btnPreset bg-radio-800 hover:bg-radio-700 border border-radio-700 px-2 py-0.5 rounded text-slate-300" data-text="THE QUICK BROWN FOX JUMPS OVER THE LAZY DOG 1234567890">Alphabet &amp; Numbers</button>
+          <button class="btnPreset bg-radio-800 hover:bg-radio-700 border border-radio-700 px-2 py-0.5 rounded text-slate-300" data-text="RST 599 5NN BK">599 Exchange</button>
+        </div>
+
+        <div class="flex gap-2">
+          <input type="text" id="synthTextInput" value="CQ CQ CQ DE K7CW K" placeholder="Type text to transmit into decoder..." class="flex-1 bg-black border border-radio-700 text-slate-200 px-3 py-1.5 rounded-lg text-xs font-mono focus:border-emerald-500 outline-none">
+          <button id="btnSynthTransmit" class="bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-semibold px-4 py-1.5 rounded-lg text-xs flex items-center gap-1.5 transition active:scale-95">
+            <i class="fa-solid fa-paper-plane"></i>
+            <span>SEND</span>
+          </button>
+        </div>
+
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs pt-1">
+          <div class="flex flex-col gap-1">
+            <div class="flex justify-between text-slate-400">
+              <span>WPM:</span>
+              <span id="valSynthWpm" class="font-mono text-emerald-400">20</span>
+            </div>
+            <input type="range" id="sliderSynthWpm" min="8" max="45" value="20" class="w-full">
+          </div>
+
+          <div class="flex flex-col gap-1">
+            <div class="flex justify-between text-slate-400">
+              <span>Pitch:</span>
+              <span id="valSynthPitch" class="font-mono text-amber-400">700 Hz</span>
+            </div>
+            <input type="range" id="sliderSynthPitch" min="400" max="1000" step="25" value="700" class="w-full">
+          </div>
+
+          <div class="flex flex-col gap-1">
+            <div class="flex justify-between text-slate-400">
+              <span>QRN (Noise):</span>
+              <span id="valSynthNoise" class="font-mono text-slate-300">0%</span>
+            </div>
+            <input type="range" id="sliderSynthNoise" min="0" max="40" value="0" class="w-full">
+          </div>
+
+          <div class="flex flex-col gap-1">
+            <div class="flex justify-between text-slate-400">
+              <span>QSB (Fading):</span>
+              <span id="valSynthQsb" class="font-mono text-slate-300">Off</span>
+            </div>
+            <input type="range" id="sliderSynthQsb" min="0" max="50" value="0" class="w-full">
+          </div>
+        </div>
+
+      </div>
+
+    </section>
+
+  </main>
+
+  <footer class="bg-radio-900 border-t border-radio-800 px-4 py-2 text-[11px] text-slate-500">
+    <div class="max-w-7xl mx-auto flex flex-wrap justify-between items-center gap-2 font-mono">
+      <div>DSP Engine: Time-Domain RMS + Gamma Dynamic Contrast | AudioContext: <span id="footAudioState" class="text-slate-400">Suspended</span></div>
+      <div>Morse Expert Web Edition &bull; PWA Ready</div>
+    </div>
+  </footer>
+
+  <div id="toastContainer" class="fixed bottom-4 right-4 z-50 flex flex-col gap-2 pointer-events-none"></div>
+
+  <script>
+    const state = {
+      audioCtx: null,
+      analyserNode: null,
+      envelopeAnalyser: null,
+      micStream: null,
+      sourceNode: null,
+      bandpassFilter: null,
+      gainNode: null,
+      synthGainNode: null,
+      
+      isRunning: false,
+      audioSource: 'mic',
+      
+      // DSP & Tuning Parameters
+      targetPitch: 700,
+      autoLock: true,
+      bandwidth: 60,
+      squelchPct: 15,
+      inputGain: 1.0,
+      lastSignalTime: 0,
+      
+      // Sub-10ms Time-Domain RMS Tracking
+      rmsPeak: 0.05,
+      rmsNoise: 0.002,
+      
+      // Adaptive Timing & WPM Engine
+      wpm: 20.0,
+      fixedWpmMode: false,
+      ditMs: 60,
+      timingHistory: [],
+      
+      // Envelope & Key State Tracking
+      isMark: false,
+      markStartTime: 0,
+      spaceStartTime: 0,
+      symbolBuffer: "",
+      
+      // Visualizer settings
+      theme: 'amber',
+      waterfallSpeed: 2,
+      
+      // Stats
+      charCount: 0,
+      wordCount: 0,
+      
+      // Wake Lock
+      wakeLockObj: null
+    };
+
+    const MORSE_MAP = {
+      ".-": "A", "-...": "B", "-.-.": "C", "-..": "D", ".": "E",
+      "..-.": "F", "--.": "G", "....": "H", "..": "I", ".---": "J",
+      "-.-": "K", ".-..": "L", "--": "M", "-.": "N", "---": "O",
+      ".--.": "P", "--.-": "Q", ".-.": "R", "...": "S", "-": "T",
+      "..-": "U", "...-": "V", ".--": "W", "-..-": "X", "-.--": "Y",
+      "--..": "Z",
+      "-----": "0", ".----": "1", "..---": "2", "...--": "3", "....-": "4",
+      ".....": "5", "-....": "6", "--...": "7", "---..": "8", "----.": "9",
+      ".-.-.-": ".", "--..--": ",", "..--..": "?", ".----.": "'", "-.-.--": "!",
+      "-..-.": "/", "-.--.": "(", "-.--.-": ")", ".-...": "&", "---...": ":",
+      "-.-.-.": ";", "-...-": "=", ".-.-.": "+", "-....-": "-", "..--.-": "_",
+      ".-..-.": '"', ".--.-.": "@"
+    };
+
+    const REVERSE_MORSE_MAP = {};
+    Object.keys(MORSE_MAP).forEach(k => {
+      REVERSE_MORSE_MAP[MORSE_MAP[k]] = k;
+    });
+
+    const PALETTES = {
+      amber: (val) => [val, Math.floor(val * 0.65), 0],
+      green: (val) => [0, val, Math.floor(val * 0.4)],
+      cyan: (val) => [0, Math.floor(val * 0.8), val],
+      fire: (val) => [val, Math.floor(val * val / 255), Math.floor(val * 0.2)],
+      mono: (val) => [val, val, val]
+    };
+
+    const elements = {
+      btnToggleAudio: document.getElementById('btnToggleAudio'),
+      btnAudioIcon: document.getElementById('btnAudioIcon'),
+      btnAudioText: document.getElementById('btnAudioText'),
+      audioSourceSelect: document.getElementById('audioSourceSelect'),
+      btnWakeLock: document.getElementById('btnWakeLock'),
+      
+      hudPitch: document.getElementById('hudPitch'),
+      btnToggleAutoLock: document.getElementById('btnToggleAutoLock'),
+      hudBwText: document.getElementById('hudBwText'),
+      hudLockState: document.getElementById('hudLockState'),
+      hudWpm: document.getElementById('hudWpm'),
+      hudDitMs: document.getElementById('hudDitMs'),
+      hudSnr: document.getElementById('hudSnr'),
+      hudNoiseFloor: document.getElementById('hudNoiseFloor'),
+      hudSmeterText: document.getElementById('hudSmeterText'),
+      smeterBar: document.getElementById('smeterBar'),
+      hudKeyStateText: document.getElementById('hudKeyStateText'),
+      keyStateLed: document.getElementById('keyStateLed'),
+      hudElementSymbol: document.getElementById('hudElementSymbol'),
+      hudThresholdVal: document.getElementById('hudThresholdVal'),
+      hudCharCount: document.getElementById('hudCharCount'),
+      hudWordCount: document.getElementById('hudWordCount'),
+      hudFidelity: document.getElementById('hudFidelity'),
+      
+      canvasSpectrum: document.getElementById('canvasSpectrum'),
+      canvasWaterfall: document.getElementById('canvasWaterfall'),
+      canvasHoverFreq: document.getElementById('canvasHoverFreq'),
+      themeSelect: document.getElementById('themeSelect'),
+      speedSelect: document.getElementById('speedSelect'),
+      btnResetTune: document.getElementById('btnResetTune'),
+      
+      terminalContainer: document.getElementById('terminalContainer'),
+      decodedTextOutput: document.getElementById('decodedTextOutput'),
+      terminalStatus: document.getElementById('terminalStatus'),
+      btnAutoScroll: document.getElementById('btnAutoScroll'),
+      btnCopyText: document.getElementById('btnCopyText'),
+      btnDownloadLog: document.getElementById('btnDownloadLog'),
+      btnClearText: document.getElementById('btnClearText'),
+      btnFontInc: document.getElementById('btnFontInc'),
+      btnFontDec: document.getElementById('btnFontDec'),
+      
+      sliderInputGain: document.getElementById('sliderInputGain'),
+      valInputGain: document.getElementById('valInputGain'),
+      sliderBandwidth: document.getElementById('sliderBandwidth'),
+      valBandwidth: document.getElementById('valBandwidth'),
+      sliderSquelch: document.getElementById('sliderSquelch'),
+      valSquelch: document.getElementById('valSquelch'),
+      btnToggleWpmLock: document.getElementById('btnToggleWpmLock'),
+      wpmLockStatusLabel: document.getElementById('wpmLockStatusLabel'),
+      
+      synthTextInput: document.getElementById('synthTextInput'),
+      btnSynthTransmit: document.getElementById('btnSynthTransmit'),
+      sliderSynthWpm: document.getElementById('sliderSynthWpm'),
+      valSynthWpm: document.getElementById('valSynthWpm'),
+      sliderSynthPitch: document.getElementById('sliderSynthPitch'),
+      valSynthPitch: document.getElementById('valSynthPitch'),
+      sliderSynthNoise: document.getElementById('sliderSynthNoise'),
+      valSynthNoise: document.getElementById('valSynthNoise'),
+      sliderSynthQsb: document.getElementById('sliderSynthQsb'),
+      valSynthQsb: document.getElementById('valSynthQsb'),
+      
+      footAudioState: document.getElementById('footAudioState')
+    };
+
+    let autoScrollEnabled = true;
+    let terminalFontSize = 16;
+
+    async function initAudioEngine() {
+      if (!state.audioCtx) {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        state.audioCtx = new AudioCtx({ latencyHint: 'interactive' });
+      }
+
+      if (state.audioCtx.state === 'suspended') {
+        await state.audioCtx.resume();
+      }
+
+      elements.footAudioState.textContent = state.audioCtx.state;
+
+      if (!state.analyserNode) {
+        state.analyserNode = state.audioCtx.createAnalyser();
+        state.analyserNode.fftSize = 2048;
+        state.analyserNode.smoothingTimeConstant = 0.2;
+      }
+
+      if (!state.bandpassFilter) {
+        state.bandpassFilter = state.audioCtx.createBiquadFilter();
+        state.bandpassFilter.type = 'bandpass';
+        state.bandpassFilter.frequency.value = state.targetPitch;
+        state.bandpassFilter.Q.value = state.targetPitch / state.bandwidth;
+      }
+
+      if (!state.envelopeAnalyser) {
+        state.envelopeAnalyser = state.audioCtx.createAnalyser();
+        state.envelopeAnalyser.fftSize = 256;
+      }
+
+      if (!state.gainNode) {
+        state.gainNode = state.audioCtx.createGain();
+        state.gainNode.gain.value = state.inputGain;
+      }
+
+      if (state.audioSource === 'mic') {
+        await setupMicrophoneSource();
+      } else {
+        setupSynthesizerSource();
+      }
+
+      state.isRunning = true;
+      updateAudioBtnUI();
+      showToast("Audio Engine Started - Listening for CW Signals", "success");
+      
+      requestAnimationFrame(dspAnimationLoop);
+    }
+
+    function stopAudioEngine() {
+      if (state.micStream) {
+        state.micStream.getTracks().forEach(track => track.stop());
+        state.micStream = null;
+      }
+      state.isRunning = false;
+      updateAudioBtnUI();
+      if (state.audioCtx) {
+        elements.footAudioState.textContent = 'Stopped';
+      }
+      showToast("Audio Engine Stopped", "info");
+    }
+
+    async function setupMicrophoneSource() {
+      try {
+        state.micStream = await navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
+        });
+
+        if (state.sourceNode) state.sourceNode.disconnect();
+
+        state.sourceNode = state.audioCtx.createMediaStreamSource(state.micStream);
+        
+        state.sourceNode.connect(state.gainNode);
+        state.gainNode.connect(state.analyserNode);
+        state.gainNode.connect(state.bandpassFilter);
+        state.bandpassFilter.connect(state.envelopeAnalyser);
+
+      } catch (err) {
+        console.error("Microphone access error:", err);
+        showToast("Microphone access denied. Switching to Synthesizer mode.", "error");
+        state.audioSource = 'synth';
+        elements.audioSourceSelect.value = 'synth';
+        setupSynthesizerSource();
+      }
+    }
+
+    function setupSynthesizerSource() {
+      if (state.sourceNode) state.sourceNode.disconnect();
+
+      if (!state.synthGainNode) {
+        state.synthGainNode = state.audioCtx.createGain();
+        state.synthGainNode.gain.value = 0.8;
+      }
+
+      state.synthGainNode.connect(state.gainNode);
+      state.gainNode.connect(state.analyserNode);
+      state.gainNode.connect(state.bandpassFilter);
+      state.bandpassFilter.connect(state.envelopeAnalyser);
+      state.synthGainNode.connect(state.audioCtx.destination);
+    }
+
+    const fftBuffer = new Uint8Array(1024);
+    const timeDomainBuffer = new Float32Array(256);
+
+    function processDSP() {
+      if (!state.analyserNode || !state.isRunning) return;
+
+      const sampleRate = state.audioCtx.sampleRate;
+      const fftSize = state.analyserNode.fftSize;
+      const binWidth = sampleRate / fftSize;
+
+      state.analyserNode.getByteFrequencyData(fftBuffer);
+
+      const minBin = Math.floor(200 / binWidth);
+      const maxBin = Math.floor(1400 / binWidth);
+
+      let peakVal = -1;
+      let peakBin = -1;
+      let totalPower = 0;
+      let countBins = 0;
+
+      for (let i = minBin; i <= maxBin; i++) {
+        const val = fftBuffer[i];
+        totalPower += val;
+        countBins++;
+        if (val > peakVal) {
+          peakVal = val;
+          peakBin = i;
+        }
+      }
+
+      const avgNoise = totalPower / (countBins || 1);
+      
+      let exactPeakFreq = state.targetPitch;
+      if (peakBin > minBin && peakBin < maxBin) {
+        const alpha = fftBuffer[peakBin - 1];
+        const beta = fftBuffer[peakBin];
+        const gamma = fftBuffer[peakBin + 1];
+        const delta = (gamma - alpha) / (2 * (2 * beta - alpha - gamma) || 1);
+        exactPeakFreq = Math.round((peakBin + delta) * binWidth);
+      }
+
+      const squelchThreshold = (state.squelchPct / 100) * 255;
+      const isValidSignal = peakVal > squelchThreshold && peakVal > (avgNoise + 20);
+
+      const now = performance.now();
+
+      if (state.autoLock) {
+        if (isValidSignal) {
+          state.targetPitch = Math.round(state.targetPitch * 0.85 + exactPeakFreq * 0.15);
+          state.bandpassFilter.frequency.value = state.targetPitch;
+          elements.hudPitch.textContent = state.targetPitch;
+          state.lastSignalTime = now;
+          if (elements.hudLockState) {
+            elements.hudLockState.textContent = "TRACKING";
+            elements.hudLockState.className = "text-amber-400 font-mono";
+          }
+        } else {
+          const timeSinceSignal = now - state.lastSignalTime;
+          if (timeSinceSignal < 4000) {
+            if (elements.hudLockState) {
+              elements.hudLockState.textContent = "HOLD";
+              elements.hudLockState.className = "text-emerald-400 font-mono";
+            }
+          } else {
+            if (elements.hudLockState) {
+              elements.hudLockState.textContent = "SEARCH";
+              elements.hudLockState.className = "text-slate-400 font-mono";
+            }
+          }
+        }
+      } else {
+        state.bandpassFilter.frequency.value = state.targetPitch;
+      }
+
+      const snrDb = Math.round(20 * Math.log10((peakVal + 1) / (avgNoise + 1)));
+      elements.hudSnr.textContent = (snrDb >= 0 ? "+" : "") + snrDb;
+      elements.hudNoiseFloor.textContent = Math.round(-60 + avgNoise * 0.2) + " dB";
+      updateSmeterUI(peakVal);
+
+      state.envelopeAnalyser.getFloatTimeDomainData(timeDomainBuffer);
+      let sumSquares = 0;
+      for (let i = 0; i < timeDomainBuffer.length; i++) {
+        sumSquares += timeDomainBuffer[i] * timeDomainBuffer[i];
+      }
+      const currentRms = Math.sqrt(sumSquares / timeDomainBuffer.length);
+
+      if (currentRms > state.rmsPeak) {
+        state.rmsPeak = state.rmsPeak * 0.8 + currentRms * 0.2;
+      } else {
+        state.rmsPeak = Math.max(0.005, state.rmsPeak * 0.995);
+      }
+
+      if (currentRms < state.rmsNoise) {
+        state.rmsNoise = state.rmsNoise * 0.8 + currentRms * 0.2;
+      } else {
+        state.rmsNoise = state.rmsNoise * 1.001;
+      }
+
+      const dynThreshold = state.rmsNoise + (state.rmsPeak - state.rmsNoise) * (state.squelchPct / 100);
+      const isMarkNow = currentRms > dynThreshold;
+
+      processEnvelopeState(isMarkNow, now);
+    }
+
+    function updateSmeterUI(peakVal) {
+      const pct = Math.min(100, Math.max(0, (peakVal / 255) * 100));
+      elements.smeterBar.style.width = pct + "%";
+
+      let sText = "S0";
+      if (pct > 90) sText = "S9+20";
+      else if (pct > 75) sText = "S9+10";
+      else if (pct > 60) sText = "S9";
+      else if (pct > 50) sText = "S8";
+      else if (pct > 40) sText = "S7";
+      else if (pct > 30) sText = "S5";
+      else if (pct > 20) sText = "S3";
+      else if (pct > 10) sText = "S1";
+
+      elements.hudSmeterText.textContent = sText;
+    }
+
+    function processEnvelopeState(isMarkNow, now) {
+      if (isMarkNow !== state.isMark) {
+        if (isMarkNow) {
+          const spaceDuration = now - state.spaceStartTime;
+
+          if (state.markStartTime > 0) {
+            if (spaceDuration >= state.ditMs * 5.0) {
+              outputCharacter(' ');
+            } else if (spaceDuration >= state.ditMs * 2.0) {
+              decodeSymbolBuffer();
+            }
+          }
+
+          state.markStartTime = now;
+          state.isMark = true;
+          elements.keyStateLed.className = "w-4 h-4 rounded-full bg-emerald-500 border border-emerald-400 shadow-[0_0_10px_#10b981]";
+          elements.hudKeyStateText.textContent = "MARK";
+          elements.hudKeyStateText.className = "font-mono text-emerald-400 glow-green";
+
+        } else {
+          const markDuration = now - state.markStartTime;
+
+          if (markDuration >= 12) {
+            const isDah = markDuration > (state.ditMs * 2.0);
+            const symbol = isDah ? "-" : ".";
+            
+            state.symbolBuffer += symbol;
+            elements.hudElementSymbol.textContent = state.symbolBuffer;
+
+            if (state.symbolBuffer.length >= 7) {
+              decodeSymbolBuffer();
+            }
+
+            if (!state.fixedWpmMode) {
+              updateAdaptiveWpm(markDuration, isDah);
+            }
+          }
+
+          state.spaceStartTime = now;
+          state.isMark = false;
+          elements.keyStateLed.className = "w-4 h-4 rounded-full bg-slate-700 border border-slate-600";
+          elements.hudKeyStateText.textContent = "SPACE";
+          elements.hudKeyStateText.className = "font-mono text-slate-500";
+        }
+      } else {
+        if (!state.isMark && state.spaceStartTime > 0) {
+          const spaceDuration = now - state.spaceStartTime;
+          
+          if (state.symbolBuffer.length > 0 && spaceDuration >= state.ditMs * 2.2) {
+            decodeSymbolBuffer();
+          } else if (spaceDuration >= state.ditMs * 6.0) {
+            const txt = elements.decodedTextOutput.textContent;
+            if (txt.length > 0 && !txt.endsWith(' ')) {
+              outputCharacter(' ');
+            }
+          }
+        }
+      }
+    }
+
+    function updateAdaptiveWpm(markDurationMs, isDah) {
+      state.timingHistory.push({ dur: markDurationMs, isDah });
+      if (state.timingHistory.length > 16) {
+        state.timingHistory.shift();
+      }
+
+      const dits = state.timingHistory.filter(e => !e.isDah).map(e => e.dur);
+      const dahs = state.timingHistory.filter(e => e.isDah).map(e => e.dur / 3.0);
+
+      const samples = [...dits, ...dahs];
+      if (samples.length >= 3) {
+        samples.sort((a, b) => a - b);
+        const medianDitMs = samples[Math.floor(samples.length / 2)];
+        
+        const targetDitMs = Math.min(240, Math.max(24, medianDitMs));
+        
+        state.ditMs = state.ditMs * 0.8 + targetDitMs * 0.2;
+        state.wpm = Math.round((1200 / state.ditMs) * 10) / 10;
+
+        elements.hudWpm.textContent = state.wpm.toFixed(1);
+        elements.hudDitMs.textContent = Math.round(state.ditMs);
+      }
+    }
+
+    function decodeSymbolBuffer() {
+      if (state.symbolBuffer.length === 0) return;
+
+      const char = MORSE_MAP[state.symbolBuffer] || "?";
+      outputCharacter(char);
+
+      state.symbolBuffer = "";
+      elements.hudElementSymbol.textContent = "-";
+    }
+
+    function outputCharacter(char) {
+      elements.decodedTextOutput.textContent += char;
+      state.charCount++;
+
+      if (char === ' ') {
+        state.wordCount++;
+      }
+
+      elements.hudCharCount.textContent = state.charCount;
+      elements.hudWordCount.textContent = state.wordCount;
+
+      if (autoScrollEnabled) {
+        elements.terminalContainer.scrollTop = elements.terminalContainer.scrollHeight;
+      }
+    }
+
+    const canvasSpectrum = elements.canvasSpectrum;
+    const ctxSpectrum = canvasSpectrum.getContext('2d');
+    const canvasWaterfall = elements.canvasWaterfall;
+    const ctxWaterfall = canvasWaterfall.getContext('2d');
+
+    // Offscreen Canvas for Crisp Right-to-Left Horizontal Waterfall Buffer
+    const offscreenWaterfall = document.createElement('canvas');
+    const offscreenCtx = offscreenWaterfall.getContext('2d');
+
+    function resizeCanvases() {
+      const rect = canvasWaterfall.parentElement.getBoundingClientRect();
+
+      canvasSpectrum.width = rect.width;
+      canvasSpectrum.height = 80;
+      
+      canvasWaterfall.width = rect.width;
+      canvasWaterfall.height = 224;
+
+      offscreenWaterfall.width = rect.width;
+      offscreenWaterfall.height = 224;
+    }
+
+    window.addEventListener('resize', resizeCanvases);
+    setTimeout(resizeCanvases, 100);
+
+    function dspAnimationLoop() {
+      if (!state.isRunning) return;
+
+      processDSP();
+      drawSpectrumCanvas();
+      drawWaterfallCanvas();
+
+      requestAnimationFrame(dspAnimationLoop);
+    }
+
+    function drawSpectrumCanvas() {
+      const w = canvasSpectrum.width;
+      const h = canvasSpectrum.height;
+
+      ctxSpectrum.fillStyle = '#000000';
+      ctxSpectrum.fillRect(0, 0, w, h);
+
+      if (!state.analyserNode) return;
+
+      const sampleRate = state.audioCtx.sampleRate;
+      const fftSize = state.analyserNode.fftSize;
+      const binWidth = sampleRate / fftSize;
+
+      const minFreq = 200;
+      const maxFreq = 1400;
+      const minBin = Math.floor(minFreq / binWidth);
+      const maxBin = Math.floor(maxFreq / binWidth);
+      const totalBins = maxBin - minBin;
+
+      const targetX = ((state.targetPitch - minFreq) / (maxFreq - minFreq)) * w;
+      const halfBwPx = ((state.bandwidth / 2) / (maxFreq - minFreq)) * w;
+
+      ctxSpectrum.fillStyle = 'rgba(16, 185, 129, 0.12)';
+      ctxSpectrum.fillRect(targetX - halfBwPx, 0, halfBwPx * 2, h);
+
+      ctxSpectrum.strokeStyle = state.autoLock ? '#f59e0b' : '#10b981';
+      ctxSpectrum.lineWidth = 1.5;
+      ctxSpectrum.setLineDash([3, 3]);
+      ctxSpectrum.beginPath();
+      ctxSpectrum.moveTo(targetX, 0);
+      ctxSpectrum.lineTo(targetX, h);
+      ctxSpectrum.stroke();
+      ctxSpectrum.setLineDash([]);
+
+      ctxSpectrum.lineWidth = 2;
+      ctxSpectrum.strokeStyle = '#06b6d4';
+      ctxSpectrum.beginPath();
+
+      for (let i = 0; i < totalBins; i++) {
+        const binIdx = minBin + i;
+        const val = fftBuffer[binIdx] || 0;
+        const x = (i / totalBins) * w;
+        const y = h - (val / 255) * h;
+
+        if (i === 0) ctxSpectrum.moveTo(x, y);
+        else ctxSpectrum.lineTo(x, y);
+      }
+      ctxSpectrum.stroke();
+
+      ctxSpectrum.fillStyle = '#64748b';
+      ctxSpectrum.font = '10px monospace';
+      for (let freq = 300; freq <= 1300; freq += 200) {
+        const x = ((freq - minFreq) / (maxFreq - minFreq)) * w;
+        ctxSpectrum.fillText(freq + 'Hz', x - 15, h - 4);
+      }
+    }
+
+    function drawWaterfallCanvas() {
+      const w = canvasWaterfall.width;
+      const h = canvasWaterfall.height;
+
+      if (w === 0 || h === 0) return;
+
+      const speed = parseInt(state.waterfallSpeed) || 2;
+
+      // 1. Scroll existing offscreen image LEFT by `speed` pixels
+      offscreenCtx.drawImage(offscreenWaterfall, speed, 0, w - speed, h, 0, 0, w - speed, h);
+
+      // 2. Generate new slice for rightmost edge (X = w - speed)
+      const sampleRate = state.audioCtx ? state.audioCtx.sampleRate : 44100;
+      const fftSize = state.analyserNode ? state.analyserNode.fftSize : 2048;
+      const binWidth = sampleRate / fftSize;
+
+      const minFreq = 200;
+      const maxFreq = 1400;
+
+      const imgData = offscreenCtx.createImageData(speed, h);
+      const paletteFn = PALETTES[state.theme] || PALETTES.amber;
+
+      // Compute dynamic noise floor estimate for subtraction
+      let sumNoise = 0;
+      let countNoise = 0;
+      for (let i = 0; i < 100; i++) {
+        sumNoise += fftBuffer[i] || 0;
+        countNoise++;
+      }
+      const noiseFloorEstimate = sumNoise / (countNoise || 1);
+      const squelchCutoff = noiseFloorEstimate + (state.squelchPct / 100) * 120;
+
+      // Map frequencies along Y-axis (Top = 1400 Hz, Bottom = 200 Hz)
+      for (let y = 0; y < h; y++) {
+        const normY = 1.0 - (y / h); // Top is high freq, bottom is low freq
+        const freq = minFreq + normY * (maxFreq - minFreq);
+        const binIdx = Math.floor(freq / binWidth);
+        const rawVal = fftBuffer[binIdx] || 0;
+
+        // Morse Expert Dynamic Contrast & Noise Floor Subtraction
+        let cleanVal = 0;
+        if (rawVal > squelchCutoff) {
+          const normVal = (rawVal - squelchCutoff) / (255 - squelchCutoff);
+          cleanVal = Math.pow(normVal, 2.2) * 255 * state.inputGain;
+        }
+
+        const clampedVal = Math.min(255, Math.max(0, Math.floor(cleanVal)));
+        const [r, g, b] = paletteFn(clampedVal);
+
+        for (let x = 0; x < speed; x++) {
+          const pixelIdx = (y * speed + x) * 4;
+          imgData.data[pixelIdx] = r;
+          imgData.data[pixelIdx + 1] = g;
+          imgData.data[pixelIdx + 2] = b;
+          imgData.data[pixelIdx + 3] = 255;
+        }
+      }
+
+      offscreenCtx.putImageData(imgData, w - speed, 0);
+
+      // 3. Render offscreen buffer to visible canvas
+      ctxWaterfall.drawImage(offscreenWaterfall, 0, 0);
+
+      // 4. Draw Horizontal Target Frequency Reticle
+      const targetNormY = (state.targetPitch - minFreq) / (maxFreq - minFreq);
+      const targetY = h - (targetNormY * h);
+
+      ctxWaterfall.strokeStyle = state.autoLock ? 'rgba(245, 158, 11, 0.85)' : 'rgba(16, 185, 129, 0.85)';
+      ctxWaterfall.lineWidth = 1.5;
+      ctxWaterfall.setLineDash([4, 4]);
+      ctxWaterfall.beginPath();
+      ctxWaterfall.moveTo(0, targetY);
+      ctxWaterfall.lineTo(w, targetY);
+      ctxWaterfall.stroke();
+      ctxWaterfall.setLineDash([]);
+
+      // Draw Passband Bandwidth Zone
+      const halfBwPx = ((state.bandwidth / 2) / (maxFreq - minFreq)) * h;
+      ctxWaterfall.fillStyle = 'rgba(16, 185, 129, 0.12)';
+      ctxWaterfall.fillRect(0, targetY - halfBwPx, w, halfBwPx * 2);
+    }
+
+    function handleCanvasTuning(e) {
+      const rect = canvasWaterfall.getBoundingClientRect();
+      const clickY = e.clientY - rect.top;
+      const h = rect.height;
+
+      const minFreq = 200;
+      const maxFreq = 1400;
+      const normY = 1.0 - (clickY / h);
+      const clickedFreq = Math.round(minFreq + normY * (maxFreq - minFreq));
+
+      state.targetPitch = Math.min(1300, Math.max(250, clickedFreq));
+      state.autoLock = false;
+
+      if (state.bandpassFilter) {
+        state.bandpassFilter.frequency.value = state.targetPitch;
+      }
+
+      elements.hudPitch.textContent = state.targetPitch;
+      elements.btnToggleAutoLock.textContent = "MANUAL";
+      elements.btnToggleAutoLock.className = "text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30";
+      elements.hudLockState.textContent = "LOCKED";
+      elements.hudLockState.className = "text-emerald-400 font-mono";
+
+      showToast(`Frequency locked to ${state.targetPitch} Hz`, "success");
+    }
+
+    canvasWaterfall.addEventListener('click', handleCanvasTuning);
+
+    canvasWaterfall.addEventListener('mousemove', (e) => {
+      const rect = canvasWaterfall.getBoundingClientRect();
+      const clickY = e.clientY - rect.top;
+      const h = rect.height;
+      const normY = 1.0 - (clickY / h);
+      const freq = Math.round(200 + normY * (1400 - 200));
+
+      elements.canvasHoverFreq.textContent = `${freq} Hz`;
+      elements.canvasHoverFreq.style.top = `${Math.min(h - 30, Math.max(10, clickY - 15))}px`;
+      elements.canvasHoverFreq.classList.remove('hidden');
+    });
+
+    canvasWaterfall.addEventListener('mouseleave', () => {
+      elements.canvasHoverFreq.classList.add('hidden');
+    });
+
+    async function transmitSynthesizerText() {
+      if (!state.isRunning) {
+        await initAudioEngine();
+      }
+
+      const text = elements.synthTextInput.value.trim().toUpperCase();
+      if (!text) return;
+
+      const synthWpm = parseInt(elements.sliderSynthWpm.value);
+      const synthPitch = parseInt(elements.sliderSynthPitch.value);
+
+      const ditSec = 1.2 / synthWpm;
+      const ctx = state.audioCtx;
+
+      elements.btnSynthTransmit.disabled = true;
+      elements.btnSynthTransmit.innerHTML = `<i class="fa-solid fa-spinner animate-spin"></i> TRANSMITTING...`;
+
+      showToast(`Transmitting Morse at ${synthWpm} WPM (${synthPitch} Hz)`, "info");
+
+      let currentTime = ctx.currentTime + 0.1;
+
+      for (let i = 0; i < text.length; i++) {
+        const char = text[i];
+
+        if (char === ' ') {
+          currentTime += ditSec * 7;
+          continue;
+        }
+
+        const morseCode = REVERSE_MORSE_MAP[char];
+        if (!morseCode) continue;
+
+        for (let j = 0; j < morseCode.length; j++) {
+          const symbol = morseCode[j];
+          const duration = (symbol === '-') ? ditSec * 3 : ditSec;
+
+          const osc = ctx.createOscillator();
+          const toneGain = ctx.createGain();
+
+          osc.type = 'sine';
+          osc.frequency.value = synthPitch;
+
+          toneGain.gain.setValueAtTime(0, currentTime);
+          toneGain.gain.linearRampToValueAtTime(0.8, currentTime + 0.005);
+          toneGain.gain.setValueAtTime(0.8, currentTime + duration - 0.005);
+          toneGain.gain.linearRampToValueAtTime(0, currentTime + duration);
+
+          osc.connect(toneGain);
+          toneGain.connect(state.synthGainNode);
+
+          osc.start(currentTime);
+          osc.stop(currentTime + duration);
+
+          currentTime += duration + ditSec;
+        }
+
+        currentTime += ditSec * 2;
+      }
+
+      const totalTimeMs = (currentTime - ctx.currentTime) * 1000;
+      setTimeout(() => {
+        elements.btnSynthTransmit.disabled = false;
+        elements.btnSynthTransmit.innerHTML = `<i class="fa-solid fa-paper-plane"></i> <span>SEND</span>`;
+      }, totalTimeMs);
+    }
+
+    elements.btnToggleAudio.addEventListener('click', () => {
+      if (state.isRunning) {
+        stopAudioEngine();
+      } else {
+        initAudioEngine();
+      }
+    });
+
+    function updateAudioBtnUI() {
+      if (state.isRunning) {
+        elements.btnToggleAudio.className = "bg-rose-600 hover:bg-rose-500 text-slate-100 font-semibold px-4 py-2 rounded-lg transition-all flex items-center gap-2 shadow-md hover:shadow-rose-500/20 active:scale-95";
+        elements.btnAudioIcon.className = "fa-solid fa-stop";
+        elements.btnAudioText.textContent = "STOP DECODER";
+        if (elements.terminalStatus) {
+          elements.terminalStatus.textContent = "● LIVE";
+          elements.terminalStatus.className = "text-emerald-400/80 font-mono text-[11px] animate-pulse";
+        }
+      } else {
+        elements.btnToggleAudio.className = "bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-semibold px-4 py-2 rounded-lg transition-all flex items-center gap-2 shadow-md hover:shadow-emerald-500/20 active:scale-95";
+        elements.btnAudioIcon.className = "fa-solid fa-power-off";
+        elements.btnAudioText.textContent = "START DECODER";
+        if (elements.terminalStatus) {
+          elements.terminalStatus.textContent = "○ PAUSED";
+          elements.terminalStatus.className = "text-slate-500 font-mono text-[11px]";
+        }
+      }
+    }
+
+    elements.audioSourceSelect.addEventListener('change', (e) => {
+      state.audioSource = e.target.value;
+      if (state.isRunning) initAudioEngine();
+    });
+
+    elements.btnToggleAutoLock.addEventListener('click', () => {
+      state.autoLock = !state.autoLock;
+      if (state.autoLock) {
+        elements.btnToggleAutoLock.textContent = "AUTO";
+        elements.btnToggleAutoLock.className = "text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30";
+        elements.hudLockState.textContent = "TRACKING";
+        elements.hudLockState.className = "text-amber-400 font-mono";
+      } else {
+        elements.btnToggleAutoLock.textContent = "MANUAL";
+        elements.btnToggleAutoLock.className = "text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30";
+        elements.hudLockState.textContent = "LOCKED";
+        elements.hudLockState.className = "text-emerald-400 font-mono";
+      }
+    });
+
+    elements.btnResetTune.addEventListener('click', () => {
+      state.targetPitch = 700;
+      state.autoLock = true;
+      if (state.bandpassFilter) state.bandpassFilter.frequency.value = 700;
+      elements.hudPitch.textContent = "700";
+      elements.btnToggleAutoLock.textContent = "AUTO";
+      elements.btnToggleAutoLock.className = "text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30";
+      elements.hudLockState.textContent = "TRACKING";
+      showToast("Centered Pitch Target to 700 Hz", "info");
+    });
+
+    elements.sliderInputGain.addEventListener('input', (e) => {
+      state.inputGain = parseFloat(e.target.value);
+      elements.valInputGain.textContent = state.inputGain.toFixed(1) + "x";
+      if (state.gainNode) state.gainNode.gain.value = state.inputGain;
+    });
+
+    elements.sliderBandwidth.addEventListener('input', (e) => {
+      state.bandwidth = parseInt(e.target.value);
+      elements.valBandwidth.textContent = state.bandwidth + " Hz";
+      elements.hudBwText.textContent = state.bandwidth;
+    });
+
+    elements.sliderSquelch.addEventListener('input', (e) => {
+      state.squelchPct = parseInt(e.target.value);
+      elements.valSquelch.textContent = state.squelchPct + "%";
+      elements.hudThresholdVal.textContent = state.squelchPct + "%";
+    });
+
+    elements.btnToggleWpmLock.addEventListener('click', () => {
+      state.fixedWpmMode = !state.fixedWpmMode;
+      if (state.fixedWpmMode) {
+        elements.wpmLockStatusLabel.textContent = "Fixed (Manual)";
+        elements.wpmLockStatusLabel.className = "font-mono text-amber-400";
+        showToast("WPM Speed Lock Enabled", "info");
+      } else {
+        elements.wpmLockStatusLabel.textContent = "Auto (Adaptive)";
+        elements.wpmLockStatusLabel.className = "font-mono text-emerald-400";
+        showToast("Adaptive WPM Tracking Enabled", "info");
+      }
+    });
+
+    document.querySelectorAll('.btnPreset').forEach(btn => {
+      btn.addEventListener('click', () => {
+        elements.synthTextInput.value = btn.dataset.text;
+      });
+    });
+
+    elements.btnSynthTransmit.addEventListener('click', transmitSynthesizerText);
+
+    elements.sliderSynthWpm.addEventListener('input', (e) => {
+      elements.valSynthWpm.textContent = e.target.value;
+    });
+    elements.sliderSynthPitch.addEventListener('input', (e) => {
+      elements.valSynthPitch.textContent = e.target.value + " Hz";
+    });
+    elements.sliderSynthNoise.addEventListener('input', (e) => {
+      elements.valSynthNoise.textContent = e.target.value + "%";
+    });
+    elements.sliderSynthQsb.addEventListener('input', (e) => {
+      elements.valSynthQsb.textContent = e.target.value === "0" ? "Off" : e.target.value + "%";
+    });
+
+    elements.themeSelect.addEventListener('change', (e) => {
+      state.theme = e.target.value;
+    });
+    elements.speedSelect.addEventListener('change', (e) => {
+      state.waterfallSpeed = parseInt(e.target.value);
+    });
+
+    elements.btnFontInc.addEventListener('click', () => {
+      if (terminalFontSize < 28) {
+        terminalFontSize += 2;
+        elements.terminalContainer.style.fontSize = terminalFontSize + "px";
+      }
+    });
+    elements.btnFontDec.addEventListener('click', () => {
+      if (terminalFontSize > 12) {
+        terminalFontSize -= 2;
+        elements.terminalContainer.style.fontSize = terminalFontSize + "px";
+      }
+    });
+
+    elements.btnAutoScroll.addEventListener('click', () => {
+      autoScrollEnabled = !autoScrollEnabled;
+      if (autoScrollEnabled) {
+        elements.btnAutoScroll.className = "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-2.5 py-1 rounded font-medium flex items-center gap-1";
+      } else {
+        elements.btnAutoScroll.className = "bg-radio-800 text-slate-400 border border-radio-700 px-2.5 py-1 rounded flex items-center gap-1";
+      }
+    });
+
+    elements.btnCopyText.addEventListener('click', () => {
+      const text = elements.decodedTextOutput.textContent;
+      if (!text) return;
+
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+      showToast("Decoded text copied to clipboard!", "success");
+    });
+
+    elements.btnDownloadLog.addEventListener('click', () => {
+      const text = elements.decodedTextOutput.textContent;
+      if (!text) return;
+
+      const blob = new Blob([text], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `morse-decoded-log-${new Date().toISOString().slice(0, 10)}.txt`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    });
+
+    elements.btnClearText.addEventListener('click', () => {
+      elements.decodedTextOutput.textContent = "";
+      state.charCount = 0;
+      state.wordCount = 0;
+      elements.hudCharCount.textContent = "0";
+      elements.hudWordCount.textContent = "0";
+      showToast("Terminal cleared", "info");
+    });
+
+    elements.btnWakeLock.addEventListener('click', async () => {
+      if ('wakeLock' in navigator) {
+        try {
+          if (!state.wakeLockObj) {
+            state.wakeLockObj = await navigator.wakeLock.request('screen');
+            elements.btnWakeLock.className = "bg-amber-500/20 text-amber-400 border border-amber-500/30 px-3 py-2 rounded-lg transition flex items-center gap-2";
+            showToast("Screen Wake Lock Enabled", "success");
+          } else {
+            await state.wakeLockObj.release();
+            state.wakeLockObj = null;
+            elements.btnWakeLock.className = "bg-radio-800 hover:bg-radio-700 text-slate-300 border border-radio-700 px-3 py-2 rounded-lg transition flex items-center gap-2";
+            showToast("Screen Wake Lock Disabled", "info");
+          }
+        } catch (err) {
+          showToast("Wake lock failed: " + err.message, "error");
+        }
+      } else {
+        showToast("Wake Lock API not supported on this browser", "error");
+      }
+    });
+
+    function showToast(msg, type = "info") {
+      const toast = document.createElement('div');
+      let colors = "bg-radio-800 border-radio-700 text-slate-200";
+      if (type === "success") colors = "bg-emerald-950 border-emerald-500/50 text-emerald-300";
+      if (type === "error") colors = "bg-rose-950 border-rose-500/50 text-rose-300";
+
+      toast.className = `px-4 py-2.5 rounded-lg border text-xs shadow-xl font-medium transition-all transform duration-300 translate-y-2 opacity-0 ${colors}`;
+      toast.textContent = msg;
+
+      const container = document.getElementById('toastContainer');
+      container.appendChild(toast);
+
+      setTimeout(() => {
+        toast.classList.remove('translate-y-2', 'opacity-0');
+      }, 10);
+
+      setTimeout(() => {
+        toast.classList.add('opacity-0', 'translate-y-2');
+        setTimeout(() => toast.remove(), 300);
+      }, 3000);
+    }
+  </script>
+</body>
+</html>
